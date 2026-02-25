@@ -54,10 +54,29 @@
 </head>
 <body>
     <div class="game-container">
-        <canvas id="gameCanvas" width="800" height="600"></canvas>
-        <div class="controls">
+        <canvas id="gameCanvas" width="1200" height="700"></canvas>
+
+        <div id="startMenu" style="position:absolute; top:40px; left:50%; transform:translateX(-50%); color:#fff; text-align:center;">
+            <h1>Epic RingWeasel</h1>
+            <button id="startBtn">Start Game</button>
+            <button id="settingsBtn">Settings</button>
+        </div>
+
+        <div id="settingsMenu" style="display:none; position:absolute; top:120px; left:50%; transform:translateX(-50%); background:#223; color:#fff; padding:12px; border-radius:8px;">
+            <h3>Settings</h3>
+            <label>Player 1 Color: <input id="p1Color" type="color" value="#8B4513"></label>
+            <br>
+            <label>Player 2 Color: <input id="p2Color" type="color" value="#3498db"></label>
+            <br><br>
+            <button id="closeSettings">Close</button>
+        </div>
+
+        <div class="controls" style="margin-top:8px;">
             <h3>Controls</h3>
-            <p>Use <span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span> keys to move the weasel</p>
+            <p>Player 1: <span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span> — Player 2: <span class="key">↑</span><span class="key">←</span><span class="key">↓</span><span class="key">→</span></p>
+        </div>
+        <div style="text-align:center; margin-top:8px;">
+            <button id="restartBtn" style="display:none;">Restart Game</button>
         </div>
     </div>
 
@@ -66,133 +85,99 @@
             constructor() {
                 this.canvas = document.getElementById('gameCanvas');
                 this.ctx = this.canvas.getContext('2d');
-                
-                // Game settings
+
                 this.gameWidth = this.canvas.width;
                 this.gameHeight = this.canvas.height;
-                
-                // Player settings
-                this.player = {
-                    x: this.gameWidth / 2,
-                    y: this.gameHeight / 2,
-                    width: 64,
-                    height: 64,
-                    speed: 5,
-                    image: null,
-                    imageLoaded: false
-                };
-                
-                // Input handling
-                this.keys = {
-                    w: false,
-                    a: false,
-                    s: false,
-                    d: false
-                };
-                
-                // Game state
-                this.gameState = 'playing'; // 'playing' or 'gameOver'
-                this.gameStartTime = Date.now();
+
+                // Two players
+                this.players = [
+                    { x: 100, y: this.gameHeight / 2 - 50, size: 48, speed: 5, color: '#8B4513', alive: true, shield: 0 },
+                    { x: this.gameWidth - 160, y: this.gameHeight / 2 - 50, size: 48, speed: 5, color: '#3498db', alive: true, shield: 0 }
+                ];
+
+                this.keys = { w:false,a:false,s:false,d:false, ArrowUp:false,ArrowLeft:false,ArrowDown:false,ArrowRight:false };
+
+                this.gameState = 'start'; // start, playing, gameOver
+                this.gameStartTime = null;
                 this.gameEndTime = null;
-                
-                // Rings
+
                 this.rings = [];
-                this.ringSpawnDelay = 3000; // 3 seconds
-                this.lastRingSpawn = 0;
+                this.ringSpawnDelay = 3000;
                 this.ringsSpawned = 0;
-                
+
+                this.nextUpgradeAt = 10000; // ms
+
+                this.setupUI();
                 this.init();
-            }
-            
-            init() {
-                // Load player sprite
-                this.player.image = new Image();
-                this.player.image.onload = () => {
-                    this.player.imageLoaded = true;
-                };
-                this.player.image.onerror = () => {
-                    console.log('Could not load weasel.png, using placeholder');
-                    this.player.imageLoaded = false;
-                };
-                this.player.image.src = 'weasel.png';
-                
-                // Set up event listeners
-                this.setupInputHandlers();
-                
-                // Start game loop
-                this.gameLoop();
             }
             
             setupInputHandlers() {
                 document.addEventListener('keydown', (e) => {
-                    switch(e.key.toLowerCase()) {
-                        case 'w':
-                            this.keys.w = true;
-                            break;
-                        case 'a':
-                            this.keys.a = true;
-                            break;
-                        case 's':
-                            this.keys.s = true;
-                            break;
-                        case 'd':
-                            this.keys.d = true;
-                            break;
-                    }
-                    e.preventDefault();
+                    if (this.keys.hasOwnProperty(e.key)) this.keys[e.key] = true;
                 });
-                
                 document.addEventListener('keyup', (e) => {
-                    switch(e.key.toLowerCase()) {
-                        case 'w':
-                            this.keys.w = false;
-                            break;
-                        case 'a':
-                            this.keys.a = false;
-                            break;
-                        case 's':
-                            this.keys.s = false;
-                            break;
-                        case 'd':
-                            this.keys.d = false;
-                            break;
-                    }
-                    e.preventDefault();
+                    if (this.keys.hasOwnProperty(e.key)) this.keys[e.key] = false;
                 });
+            }
+
+            init() {
+                // Initialize input handlers and any future setup
+                this.setupInputHandlers();
+            }
+
+            setupUI() {
+                document.getElementById('startBtn').addEventListener('click', () => this.startGame());
+                document.getElementById('settingsBtn').addEventListener('click', () => document.getElementById('settingsMenu').style.display = 'block');
+                document.getElementById('closeSettings').addEventListener('click', () => {
+                    document.getElementById('settingsMenu').style.display = 'none';
+                    // apply colors
+                    this.players[0].color = document.getElementById('p1Color').value;
+                    this.players[1].color = document.getElementById('p2Color').value;
+                });
+                document.getElementById('restartBtn').addEventListener('click', () => this.resetGame());
             }
             
             update() {
-                if (this.gameState === 'gameOver') return;
-                
-                // Spawn rings every 3 seconds
-                const currentTime = Date.now();
-                if (this.ringsSpawned < 3 && currentTime - this.gameStartTime > this.ringSpawnDelay * (this.ringsSpawned + 1)) {
+                if (this.gameState !== 'playing') return;
+
+                const now = Date.now();
+
+                // Spawn up to 3 rings with delay
+                if (this.ringsSpawned < 3 && now - this.gameStartTime > this.ringSpawnDelay * (this.ringsSpawned + 1)) {
                     this.spawnRing();
                     this.ringsSpawned++;
                 }
-                
-                // Handle movement
-                if (this.keys.w) {
-                    this.player.y -= this.player.speed;
+
+                // Movement
+                // Player 1 (WASD)
+                const p1 = this.players[0];
+                if (this.keys.w) p1.y -= p1.speed;
+                if (this.keys.s) p1.y += p1.speed;
+                if (this.keys.a) p1.x -= p1.speed;
+                if (this.keys.d) p1.x += p1.speed;
+
+                // Player 2 (Arrows)
+                const p2 = this.players[1];
+                if (this.keys.ArrowUp) p2.y -= p2.speed;
+                if (this.keys.ArrowDown) p2.y += p2.speed;
+                if (this.keys.ArrowLeft) p2.x -= p2.speed;
+                if (this.keys.ArrowRight) p2.x += p2.speed;
+
+                // Clamp
+                for (let p of this.players) {
+                    p.x = Math.max(0, Math.min(this.gameWidth - p.size, p.x));
+                    p.y = Math.max(0, Math.min(this.gameHeight - p.size, p.y));
                 }
-                if (this.keys.s) {
-                    this.player.y += this.player.speed;
-                }
-                if (this.keys.a) {
-                    this.player.x -= this.player.speed;
-                }
-                if (this.keys.d) {
-                    this.player.x += this.player.speed;
-                }
-                
-                // Keep player within boundaries
-                this.player.x = Math.max(0, Math.min(this.gameWidth - this.player.width, this.player.x));
-                this.player.y = Math.max(0, Math.min(this.gameHeight - this.player.height, this.player.y));
-                
-                // Update rings
+
                 this.updateRings();
-                
-                // Check collisions
+
+                // Grant upgrades every 10s
+                const survival = now - this.gameStartTime;
+                if (survival >= this.nextUpgradeAt) {
+                    this.giveRandomUpgrade();
+                    this.nextUpgradeAt += 10000;
+                }
+
                 this.checkCollisions();
             }
             
@@ -200,15 +185,14 @@
                 // Clear canvas
                 this.ctx.clearRect(0, 0, this.gameWidth, this.gameHeight);
                 
-                // Draw black background
-                this.ctx.fillStyle = '#000';
-                this.ctx.fillRect(0, 0, this.gameWidth, this.gameHeight);
+                // Draw background (grass pattern)
+                this.drawBackground();
                 
                 // Draw rings
                 this.drawRings();
-                
-                // Draw player
-                this.drawPlayer();
+
+                // Draw players
+                this.drawPlayers();
                 
                 // Draw UI
                 this.drawUI();
@@ -305,28 +289,41 @@
             }
             
             checkCollisions() {
-                const playerCenterX = this.player.x + this.player.width / 2;
-                const playerCenterY = this.player.y + this.player.height / 2;
-                const playerRadius = Math.min(this.player.width, this.player.height) / 2;
-                
-                for (let ring of this.rings) {
-                    const distance = Math.sqrt(
-                        Math.pow(playerCenterX - ring.x, 2) + 
-                        Math.pow(playerCenterY - ring.y, 2)
-                    );
-                    
-                    if (distance < playerRadius + ring.radius) {
-                        this.gameState = 'gameOver';
-                        this.gameEndTime = Date.now();
-                        return;
+                // For each ring test against each player
+                for (let i = this.rings.length - 1; i >= 0; i--) {
+                    const ring = this.rings[i];
+                    for (let p of this.players) {
+                        if (!p.alive) continue;
+                        const px = p.x + p.size / 2;
+                        const py = p.y + p.size / 2;
+                        const pr = p.size / 2;
+                        const dist = Math.hypot(px - ring.x, py - ring.y);
+                        if (dist < pr + ring.radius) {
+                            if (p.shield && p.shield > 0) {
+                                p.shield -= 1;
+                                // bounce ring away
+                                ring.dx = -ring.dx;
+                                ring.dy = -ring.dy;
+                                continue;
+                            } else {
+                                p.alive = false;
+                            }
+                        }
                     }
+                }
+
+                // If all players dead => game over
+                const anyAlive = this.players.some(p => p.alive);
+                if (!anyAlive) {
+                    this.gameState = 'gameOver';
+                    this.gameEndTime = Date.now();
+                    document.getElementById('restartBtn').style.display = 'inline-block';
                 }
             }
             
             drawRings() {
                 this.ctx.strokeStyle = '#ff0000';
                 this.ctx.lineWidth = 4;
-                
                 for (let ring of this.rings) {
                     this.ctx.beginPath();
                     this.ctx.arc(ring.x, ring.y, ring.radius, 0, Math.PI * 2);
@@ -350,81 +347,68 @@
                 }
             }
             
-            drawPlayer() {
-                if (this.player.imageLoaded && this.player.image.complete) {
-                    // Draw the weasel image
-                    this.ctx.drawImage(
-                        this.player.image,
-                        this.player.x,
-                        this.player.y,
-                        this.player.width,
-                        this.player.height
-                    );
-                } else {
-                    // Draw placeholder if image not loaded
-                    this.ctx.fillStyle = '#8B4513';
-                    this.ctx.fillRect(this.player.x, this.player.y, this.player.width, this.player.height);
-                    
-                    // Add some basic weasel features
-                    this.ctx.fillStyle = '#654321';
-                    this.ctx.fillRect(this.player.x + 5, this.player.y + 5, 54, 54);
-                    
-                    // Eyes
-                    this.ctx.fillStyle = '#000';
-                    this.ctx.fillRect(this.player.x + 15, this.player.y + 15, 8, 8);
-                    this.ctx.fillRect(this.player.x + 35, this.player.y + 15, 8, 8);
-                    
-                    // Nose
-                    this.ctx.fillStyle = '#FF69B4';
-                    this.ctx.fillRect(this.player.x + 28, this.player.y + 30, 6, 4);
-                    
-                    // Label
-                    this.ctx.fillStyle = '#fff';
-                    this.ctx.font = '12px Arial';
-                    this.ctx.textAlign = 'center';
+            drawPlayers() {
+                for (let i = 0; i < this.players.length; i++) {
+                    const p = this.players[i];
+                    if (!p.alive) {
+                        this.ctx.fillStyle = 'rgba(100,100,100,0.5)';
+                        this.ctx.fillRect(p.x, p.y, p.size, p.size);
+                        continue;
+                    }
+
+                    // body
+                    this.ctx.fillStyle = p.color;
+                    this.ctx.fillRect(p.x, p.y, p.size, p.size);
+
+                    // draw shield indicator
+                    if (p.shield && p.shield > 0) {
+                        this.ctx.beginPath();
+                        this.ctx.strokeStyle = 'cyan';
+                        this.ctx.lineWidth = 3;
+                        this.ctx.arc(p.x + p.size/2, p.y + p.size/2, p.size, 0, Math.PI*2);
+                        this.ctx.stroke();
+                    }
                 }
             }
             
             drawUI() {
-                // Draw position indicator
-                this.ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-                this.ctx.fillRect(10, 10, 200, 80);
-                
+                // Background box
+                this.ctx.fillStyle = 'rgba(255,255,255,0.08)';
+                this.ctx.fillRect(10, 10, 280, 110);
+
                 this.ctx.fillStyle = '#fff';
                 this.ctx.font = '14px Arial';
                 this.ctx.textAlign = 'left';
-                this.ctx.fillText(`Position: ${Math.round(this.player.x)}, ${Math.round(this.player.y)}`, 20, 30);
-                this.ctx.fillText(`Speed: ${this.player.speed}`, 20, 50);
-                this.ctx.fillText(`Rings: ${this.rings.length}/3`, 20, 70);
-                
+                this.ctx.fillText(`Rings: ${this.rings.length}/3`, 20, 30);
+                this.ctx.fillText(`P1 Shield: ${this.players[0].shield}`, 20, 50);
+                this.ctx.fillText(`P2 Shield: ${this.players[1].shield}`, 20, 70);
+
                 // Draw survival time
-                const currentTime = this.gameState === 'gameOver' ? this.gameEndTime : Date.now();
-                const survivalTime = Math.floor((currentTime - this.gameStartTime) / 1000);
+                let survivalTime = 0;
+                if (this.gameStartTime) {
+                    const currentTime = this.gameState === 'gameOver' ? this.gameEndTime : Date.now();
+                    survivalTime = Math.floor((currentTime - this.gameStartTime) / 1000);
+                }
                 this.ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-                this.ctx.fillRect(this.gameWidth - 120, 10, 110, 30);
+                this.ctx.fillRect(this.gameWidth - 160, 10, 150, 30);
                 this.ctx.fillStyle = '#fff';
                 this.ctx.textAlign = 'right';
                 this.ctx.fillText(`Time: ${survivalTime}s`, this.gameWidth - 20, 30);
             }
             
             drawGameOver() {
-                // Draw overlay
-                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-                this.ctx.fillRect(0, 0, this.gameWidth, this.gameHeight);
-                
-                // Draw game over text
-                this.ctx.fillStyle = '#ff0000';
+                this.ctx.fillStyle = 'rgba(0,0,0,0.7)';
+                this.ctx.fillRect(0,0,this.gameWidth,this.gameHeight);
+                this.ctx.fillStyle = '#ff4444';
                 this.ctx.font = 'bold 48px Arial';
                 this.ctx.textAlign = 'center';
-                this.ctx.fillText('GAME OVER', this.gameWidth / 2, this.gameHeight / 2 - 40);
-                
+                this.ctx.fillText('GAME OVER', this.gameWidth/2, this.gameHeight/2 - 40);
                 const survivalTime = Math.floor((this.gameEndTime - this.gameStartTime) / 1000);
                 this.ctx.fillStyle = '#fff';
                 this.ctx.font = '24px Arial';
-                this.ctx.fillText(`You survived ${survivalTime} seconds!`, this.gameWidth / 2, this.gameHeight / 2 + 20);
-                
+                this.ctx.fillText(`You survived ${survivalTime} seconds!`, this.gameWidth/2, this.gameHeight/2 + 20);
                 this.ctx.font = '18px Arial';
-                this.ctx.fillText('Refresh to play again', this.gameWidth / 2, this.gameHeight / 2 + 60);
+                this.ctx.fillText('Click Restart to play again', this.gameWidth/2, this.gameHeight/2 + 60);
             }
             
             gameLoop() {
@@ -432,11 +416,49 @@
                 this.draw();
                 requestAnimationFrame(() => this.gameLoop());
             }
+
+            startGame() {
+                // initialize/start
+                document.getElementById('startMenu').style.display = 'none';
+                this.players[0].color = document.getElementById('p1Color').value;
+                this.players[1].color = document.getElementById('p2Color').value;
+                this.gameState = 'playing';
+                this.gameStartTime = Date.now();
+                this.gameEndTime = null;
+                this.rings = [];
+                this.ringsSpawned = 0;
+                this.nextUpgradeAt = 10000;
+                this.players.forEach(p => { p.alive = true; p.shield = 0; p.x = p === this.players[0] ? 100 : this.gameWidth-160; p.y = this.gameHeight/2 - 50; });
+                document.getElementById('restartBtn').style.display = 'none';
+            }
+
+            resetGame() {
+                // full reset and return to start menu
+                this.gameState = 'start';
+                document.getElementById('startMenu').style.display = 'block';
+                document.getElementById('restartBtn').style.display = 'none';
+            }
+
+            giveRandomUpgrade() {
+                // Randomly give shield or speed to each alive player
+                for (let p of this.players) {
+                    if (!p.alive) continue;
+                    const r = Math.random();
+                    if (r < 0.7) {
+                        p.shield = (p.shield || 0) + 1;
+                    } else {
+                        p.speed += 1;
+                        setTimeout(() => p.speed = Math.max(3, p.speed - 1), 8000);
+                    }
+                }
+            }
         }
         
-        // Start the game when page loads
+        // Start the game instance
         window.addEventListener('load', () => {
-            new WeaselGame();
+            const game = new WeaselGame();
+            game.setupInputHandlers();
+            game.gameLoop();
         });
     </script>
 </body>

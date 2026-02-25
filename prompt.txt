@@ -1,0 +1,25 @@
+1. 
+    Make the map bigger
+
+    make it so every 10 seconds you survive you can get a random upgrade like
+    a shield that can take one hit from the ball. - good idea
+  
+    make a restart game button instead of having to refresh the game everytime we die.
+
+    Have a start menu and a settings menu where you can change the color of your ball.
+ 
+    Make it a two player game where one person uses the arrows keys and the other person uses wasd.
+
+    
+2. 
+    The start menu is currently not working, when i click the start or settings button it does nothing,
+    please ajust the code to address these issues
+    
+3.
+    The settings now works but when starting the game its just black.
+    Fix it so it works like the game is intended to. please
+
+4. 
+    Nothing has been fixed as the screen is still displaying nothing. The start game button does nothing still.
+
+5. 
