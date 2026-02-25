@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Epic RingWeasel</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #2c3e50;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+        }
+        
+        .game-container {
+            background: #34495e;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        
+        canvas {
+            border: 3px solid #ecf0f1;
+            background: #000;
+            display: block;
+            border-radius: 5px;
+        }
+        
+        .controls {
+            color: white;
+            text-align: center;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+        
+        .controls h3 {
+            margin: 0 0 10px 0;
+            color: #ecf0f1;
+        }
+        
+        .key {
+            background: #3498db;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-weight: bold;
+            margin: 0 2px;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <canvas id="gameCanvas" width="1200" height="700"></canvas>
+
+        <div id="startMenu" style="position:absolute; top:40px; left:50%; transform:translateX(-50%); color:#fff; text-align:center;">
+            <h1>Epic RingWeasel</h1>
+            <button id="startBtn">Start Game</button>
+            <button id="settingsBtn">Settings</button>
+        </div>
+
+        <div id="settingsMenu" style="display:none; position:absolute; top:120px; left:50%; transform:translateX(-50%); background:#223; color:#fff; padding:12px; border-radius:8px;">
+            <h3>Settings</h3>
+            <label>Player 1 Color: <input id="p1Color" type="color" value="#8B4513"></label>
+            <br>
+            <label>Player 2 Color: <input id="p2Color" type="color" value="#3498db"></label>
+            <br><br>
+            <button id="closeSettings">Close</button>
+        </div>
+
+        <div class="controls" style="margin-top:8px;">
+            <h3>Controls</h3>
+            <p>Player 1: <span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span> — Player 2: <span class="key">↑</span><span class="key">←</span><span class="key">↓</span><span class="key">→</span></p>
+        </div>
+        <div style="text-align:center; margin-top:8px;">
+            <button id="restartBtn" style="display:none;">Restart Game</button>
+        </div>
+    </div>
+
+    <script>
+        class WeaselGame {
+            constructor() {
+                this.canvas = document.getElementById('gameCanvas');
+                this.ctx = this.canvas.getContext('2d');
+
+                this.gameWidth = this.canvas.width;
+                this.gameHeight = this.canvas.height;
+
+                // Two players
+                this.players = [
+                    { x: 100, y: this.gameHeight / 2 - 50, size: 48, speed: 5, color: '#8B4513', alive: true, shield: 0 },
+                    { x: this.gameWidth - 160, y: this.gameHeight / 2 - 50, size: 48, speed: 5, color: '#3498db', alive: true, shield: 0 }
+                ];
+
+                this.keys = { w:false,a:false,s:false,d:false, ArrowUp:false,ArrowLeft:false,ArrowDown:false,ArrowRight:false };
+
+                this.gameState = 'start'; // start, playing, gameOver
+                this.gameStartTime = null;
+                this.gameEndTime = null;
+
+                this.rings = [];
+                this.ringSpawnDelay = 3000;
+                this.ringsSpawned = 0;
+
+                this.nextUpgradeAt = 10000; // ms
+
+                this.setupUI();
+                this.init();
+            }
+            
+            setupInputHandlers() {
+                document.addEventListener('keydown', (e) => {
+                    if (this.keys.hasOwnProperty(e.key)) this.keys[e.key] = true;
+                });
+                document.addEventListener('keyup', (e) => {
+                    if (this.keys.hasOwnProperty(e.key)) this.keys[e.key] = false;
+                });
+            }
+
+            init() {
+                // Initialize input handlers and any future setup
+                this.setupInputHandlers();
+            }
+
+            setupUI() {
+                document.getElementById('startBtn').addEventListener('click', () => this.startGame());
+                document.getElementById('settingsBtn').addEventListener('click', () => document.getElementById('settingsMenu').style.display = 'block');
+                document.getElementById('closeSettings').addEventListener('click', () => {
+                    document.getElementById('settingsMenu').style.display = 'none';
+                    // apply colors
+                    this.players[0].color = document.getElementById('p1Color').value;
+                    this.players[1].color = document.getElementById('p2Color').value;
+                });
+                document.getElementById('restartBtn').addEventListener('click', () => this.resetGame());
+            }
+            
+            update() {
+                if (this.gameState !== 'playing') return;
+
+                const now = Date.now();
+
+                // Spawn up to 3 rings with delay
+                if (this.ringsSpawned < 3 && now - this.gameStartTime > this.ringSpawnDelay * (this.ringsSpawned + 1)) {
+                    this.spawnRing();
+                    this.ringsSpawned++;
+                }
+
+                // Movement
+                // Player 1 (WASD)
+                const p1 = this.players[0];
+                if (this.keys.w) p1.y -= p1.speed;
+                if (this.keys.s) p1.y += p1.speed;
+                if (this.keys.a) p1.x -= p1.speed;
+                if (this.keys.d) p1.x += p1.speed;
+
+                // Player 2 (Arrows)
+                const p2 = this.players[1];
+                if (this.keys.ArrowUp) p2.y -= p2.speed;
+                if (this.keys.ArrowDown) p2.y += p2.speed;
+                if (this.keys.ArrowLeft) p2.x -= p2.speed;
+                if (this.keys.ArrowRight) p2.x += p2.speed;
+
+                // Clamp
+                for (let p of this.players) {
+                    p.x = Math.max(0, Math.min(this.gameWidth - p.size, p.x));
+                    p.y = Math.max(0, Math.min(this.gameHeight - p.size, p.y));
+                }
+
+                this.updateRings();
+
+                // Grant upgrades every 10s
+                const survival = now - this.gameStartTime;
+                if (survival >= this.nextUpgradeAt) {
+                    this.giveRandomUpgrade();
+                    this.nextUpgradeAt += 10000;
+                }
+
+                this.checkCollisions();
+            }
+            
+            draw() {
+                // Clear canvas
+                this.ctx.clearRect(0, 0, this.gameWidth, this.gameHeight);
+                
+                // Draw background (grass pattern)
+                this.drawBackground();
+                
+                // Draw rings
+                this.drawRings();
+
+                // Draw players
+                this.drawPlayers();
+                
+                // Draw UI
+                this.drawUI();
+                
+                // Draw game over screen if needed
+                if (this.gameState === 'gameOver') {
+                    this.drawGameOver();
+                }
+            }
+            
+            spawnRing() {
+                const ring = {
+                    x: Math.random() * (this.gameWidth - 60),
+                    y: Math.random() * (this.gameHeight - 60),
+                    radius: 30,
+                    speed: 8 + (this.ringsSpawned * 2), // Ring 1: 8, Ring 2: 10, Ring 3: 12
+                    dx: (Math.random() - 0.5) * 2, // Random direction
+                    dy: (Math.random() - 0.5) * 2
+                };
+                
+                // Normalize direction vector
+                const length = Math.sqrt(ring.dx * ring.dx + ring.dy * ring.dy);
+                ring.dx = (ring.dx / length) * ring.speed;
+                ring.dy = (ring.dy / length) * ring.speed;
+                
+                this.rings.push(ring);
+            }
+            
+            updateRings() {
+                // Check ring-to-ring collisions first
+                for (let i = 0; i < this.rings.length; i++) {
+                    for (let j = i + 1; j < this.rings.length; j++) {
+                        this.checkRingCollision(this.rings[i], this.rings[j]);
+                    }
+                }
+                
+                // Update ring positions
+                for (let ring of this.rings) {
+                    // Move ring
+                    ring.x += ring.dx;
+                    ring.y += ring.dy;
+                    
+                    // Bounce off walls
+                    if (ring.x - ring.radius <= 0 || ring.x + ring.radius >= this.gameWidth) {
+                        ring.dx = -ring.dx;
+                        ring.x = Math.max(ring.radius, Math.min(this.gameWidth - ring.radius, ring.x));
+                    }
+                    if (ring.y - ring.radius <= 0 || ring.y + ring.radius >= this.gameHeight) {
+                        ring.dy = -ring.dy;
+                        ring.y = Math.max(ring.radius, Math.min(this.gameHeight - ring.radius, ring.y));
+                    }
+                }
+            }
+            
+            checkRingCollision(ring1, ring2) {
+                const dx = ring2.x - ring1.x;
+                const dy = ring2.y - ring1.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < ring1.radius + ring2.radius) {
+                    // Calculate collision normal
+                    const normalX = dx / distance;
+                    const normalY = dy / distance;
+                    
+                    // Separate rings to prevent overlap
+                    const overlap = ring1.radius + ring2.radius - distance;
+                    const separationX = normalX * overlap * 0.5;
+                    const separationY = normalY * overlap * 0.5;
+                    
+                    ring1.x -= separationX;
+                    ring1.y -= separationY;
+                    ring2.x += separationX;
+                    ring2.y += separationY;
+                    
+                    // Calculate relative velocity
+                    const relativeVelocityX = ring2.dx - ring1.dx;
+                    const relativeVelocityY = ring2.dy - ring1.dy;
+                    
+                    // Calculate relative velocity along normal
+                    const velocityAlongNormal = relativeVelocityX * normalX + relativeVelocityY * normalY;
+                    
+                    // Don't resolve if objects are separating
+                    if (velocityAlongNormal > 0) return;
+                    
+                    // Calculate impulse scalar (assuming equal mass)
+                    const impulse = -2 * velocityAlongNormal / 2;
+                    
+                    // Apply impulse to velocities
+                    ring1.dx -= impulse * normalX;
+                    ring1.dy -= impulse * normalY;
+                    ring2.dx += impulse * normalX;
+                    ring2.dy += impulse * normalY;
+                }
+            }
+            
+            checkCollisions() {
+                // For each ring test against each player
+                for (let i = this.rings.length - 1; i >= 0; i--) {
+                    const ring = this.rings[i];
+                    for (let p of this.players) {
+                        if (!p.alive) continue;
+                        const px = p.x + p.size / 2;
+                        const py = p.y + p.size / 2;
+                        const pr = p.size / 2;
+                        const dist = Math.hypot(px - ring.x, py - ring.y);
+                        if (dist < pr + ring.radius) {
+                            if (p.shield && p.shield > 0) {
+                                p.shield -= 1;
+                                // bounce ring away
+                                ring.dx = -ring.dx;
+                                ring.dy = -ring.dy;
+                                continue;
+                            } else {
+                                p.alive = false;
+                            }
+                        }
+                    }
+                }
+
+                // If all players dead => game over
+                const anyAlive = this.players.some(p => p.alive);
+                if (!anyAlive) {
+                    this.gameState = 'gameOver';
+                    this.gameEndTime = Date.now();
+                    document.getElementById('restartBtn').style.display = 'inline-block';
+                }
+            }
+            
+            drawRings() {
+                this.ctx.strokeStyle = '#ff0000';
+                this.ctx.lineWidth = 4;
+                for (let ring of this.rings) {
+                    this.ctx.beginPath();
+                    this.ctx.arc(ring.x, ring.y, ring.radius, 0, Math.PI * 2);
+                    this.ctx.stroke();
+                }
+            }
+            
+            drawBackground() {
+                // Create a simple grass pattern
+                this.ctx.fillStyle = '#2ecc71';
+                this.ctx.fillRect(0, 0, this.gameWidth, this.gameHeight);
+                
+                // Add some texture with darker green dots
+                this.ctx.fillStyle = '#27ae60';
+                for (let x = 0; x < this.gameWidth; x += 20) {
+                    for (let y = 0; y < this.gameHeight; y += 20) {
+                        if (Math.random() > 0.7) {
+                            this.ctx.fillRect(x, y, 2, 2);
+                        }
+                    }
+                }
+            }
+            
+            drawPlayers() {
+                for (let i = 0; i < this.players.length; i++) {
+                    const p = this.players[i];
+                    if (!p.alive) {
+                        this.ctx.fillStyle = 'rgba(100,100,100,0.5)';
+                        this.ctx.fillRect(p.x, p.y, p.size, p.size);
+                        continue;
+                    }
+
+                    // body
+                    this.ctx.fillStyle = p.color;
+                    this.ctx.fillRect(p.x, p.y, p.size, p.size);
+
+                    // draw shield indicator
+                    if (p.shield && p.shield > 0) {
+                        this.ctx.beginPath();
+                        this.ctx.strokeStyle = 'cyan';
+                        this.ctx.lineWidth = 3;
+                        this.ctx.arc(p.x + p.size/2, p.y + p.size/2, p.size, 0, Math.PI*2);
+                        this.ctx.stroke();
+                    }
+                }
+            }
+            
+            drawUI() {
+                // Background box
+                this.ctx.fillStyle = 'rgba(255,255,255,0.08)';
+                this.ctx.fillRect(10, 10, 280, 110);
+
+                this.ctx.fillStyle = '#fff';
+                this.ctx.font = '14px Arial';
+                this.ctx.textAlign = 'left';
+                this.ctx.fillText(`Rings: ${this.rings.length}/3`, 20, 30);
+                this.ctx.fillText(`P1 Shield: ${this.players[0].shield}`, 20, 50);
+                this.ctx.fillText(`P2 Shield: ${this.players[1].shield}`, 20, 70);
+
+                // Draw survival time
+                let survivalTime = 0;
+                if (this.gameStartTime) {
+                    const currentTime = this.gameState === 'gameOver' ? this.gameEndTime : Date.now();
+                    survivalTime = Math.floor((currentTime - this.gameStartTime) / 1000);
+                }
+                this.ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+                this.ctx.fillRect(this.gameWidth - 160, 10, 150, 30);
+                this.ctx.fillStyle = '#fff';
+                this.ctx.textAlign = 'right';
+                this.ctx.fillText(`Time: ${survivalTime}s`, this.gameWidth - 20, 30);
+            }
+            
+            drawGameOver() {
+                this.ctx.fillStyle = 'rgba(0,0,0,0.7)';
+                this.ctx.fillRect(0,0,this.gameWidth,this.gameHeight);
+                this.ctx.fillStyle = '#ff4444';
+                this.ctx.font = 'bold 48px Arial';
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText('GAME OVER', this.gameWidth/2, this.gameHeight/2 - 40);
+                const survivalTime = Math.floor((this.gameEndTime - this.gameStartTime) / 1000);
+                this.ctx.fillStyle = '#fff';
+                this.ctx.font = '24px Arial';
+                this.ctx.fillText(`You survived ${survivalTime} seconds!`, this.gameWidth/2, this.gameHeight/2 + 20);
+                this.ctx.font = '18px Arial';
+                this.ctx.fillText('Click Restart to play again', this.gameWidth/2, this.gameHeight/2 + 60);
+            }
+            
+            gameLoop() {
+                this.update();
+                this.draw();
+                requestAnimationFrame(() => this.gameLoop());
+            }
+
+            startGame() {
+                // initialize/start
+                document.getElementById('startMenu').style.display = 'none';
+                this.players[0].color = document.getElementById('p1Color').value;
+                this.players[1].color = document.getElementById('p2Color').value;
+                this.gameState = 'playing';
+                this.gameStartTime = Date.now();
+                this.gameEndTime = null;
+                this.rings = [];
+                this.ringsSpawned = 0;
+                this.nextUpgradeAt = 10000;
+                this.players.forEach(p => { p.alive = true; p.shield = 0; p.x = p === this.players[0] ? 100 : this.gameWidth-160; p.y = this.gameHeight/2 - 50; });
+                document.getElementById('restartBtn').style.display = 'none';
+            }
+
+            resetGame() {
+                // full reset and return to start menu
+                this.gameState = 'start';
+                document.getElementById('startMenu').style.display = 'block';
+                document.getElementById('restartBtn').style.display = 'none';
+            }
+
+            giveRandomUpgrade() {
+                // Randomly give shield or speed to each alive player
+                for (let p of this.players) {
+                    if (!p.alive) continue;
+                    const r = Math.random();
+                    if (r < 0.7) {
+                        p.shield = (p.shield || 0) + 1;
+                    } else {
+                        p.speed += 1;
+                        setTimeout(() => p.speed = Math.max(3, p.speed - 1), 8000);
+                    }
+                }
+            }
+        }
+        
+        // Start the game instance
+        window.addEventListener('load', () => {
+            const game = new WeaselGame();
+            game.setupInputHandlers();
+            game.gameLoop();
+        });
+    </script>
+</body>
+</html>
